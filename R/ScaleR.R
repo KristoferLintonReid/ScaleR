@@ -25,6 +25,7 @@
 #' @export
 
 library(glmnet)
+library(pROC)
 
 ScaleR.scale <- function(train, test, gamma){
     # Scale train and test data with input gamma value
@@ -148,7 +149,7 @@ prepare.dataframe <- function(grid, nfolds){
     ncol <- dim(grid)[2] + 11
     nrow <- nrow(grid)*nfolds
     df <- data.frame(matrix(ncol=ncol, nrow=nrow))
-    colnames(df) <- c('index', 'fold', colnames(grid), 'mse', 'mse.mean', 'mse.sd','r2', 'r2.mean', 'r2.sd', 'q2', 'q2.mean', 'q2.sd')
+    colnames(df) <- c('index', 'fold', colnames(grid), 'mse', 'mse.mean', 'mse.sd','r2', 'r2.mean', 'r2.sd', 'q2', 'q2.mean', 'q2.sd', 'auc', 'auc.mean', 'auc.sd')
 
     # Populate with fold and index data
     df$index <- rep(1:nrow(grid), each=nfolds)
@@ -176,6 +177,9 @@ process.results <-function(results){
 
         results$q2.mean[start:end] <- rep(mean(results$q2[start:end]),nfolds)
         results$q2.sd[start:end] <- rep(sd(results$q2[start:end]),nfolds)
+
+        results$auc.mean[start:end] <- rep(mean(results$auc[start:end]),nfolds)
+        results$auc.sd[start:end] <- rep(sd(results$auc[start:end]),nfolds)
 
         start <- end+1
     }
@@ -234,6 +238,10 @@ grid.search <- function(x, y, model, grid, params, folds){
                     results['mse'][results['lambda'] == params$lambda[l] & results['alpha'] == params$grid$alpha & results['gamma'] == params$grid$gamma & results['fold'] == j] = mse[l]
                     results['q2'][results['lambda'] == params$lambda[l] & results['alpha'] == params$grid$alpha & results['gamma'] == params$grid$gamma & results['fold'] == j] = q2
                     results['r2'][results['lambda'] == params$lambda[l] & results['alpha'] == params$grid$alpha & results['gamma'] == params$grid$gamma & results['fold'] == j] = r2
+                    if(params$family == 'binomial'){
+                      aucroc <- auc(y_tmp$test, test.preds[,l])
+                      results['aucroc'][results['lambda'] == params$lambda[l] & results['alpha'] == params$grid$alpha & results['gamma'] == params$grid$gamma & results['fold'] == j] = aucroc
+                    }
                 }
             }
             else{
@@ -296,6 +304,7 @@ ScaleR <- function(x, y, model='glm', gamma=seq(0, 1, by=0.1), lambda=NULL, alph
         }
         lambda <- NaN
         alpha <- NaN
+        params$family <- NaN
     }
 
     # setup folds for cross val
@@ -309,18 +318,8 @@ ScaleR <- function(x, y, model='glm', gamma=seq(0, 1, by=0.1), lambda=NULL, alph
         len <- length(gamma) - 1
     }
 
-    for(round in 1:rounds){
-        grid <- prepare.grid(gamma=gamma, alpha=alpha, lambda=lambda, ncomp=ncomp)
-        round_results <- grid.search(x, y, model=model, grid=grid, params=params, folds=folds)
-        if(nrow(results)  != 0){
-            round_results$index <- round_results$index + max(results$index)
-        }
-        results <- rbind(results, round_results)
-        min.mse.mean <- round_results[which.min(round_results$mse.mean),]
-        max.gamma <- min.mse.mean$gamma + interval/2
-        min.gamma <- min.mse.mean$gamma - interval/2
-        interval <- (max.gamma - min.gamma)/(len)
-        #gamma = seq(min.gamma, max.gamma, by=interval)
-    }
+    grid <- prepare.grid(gamma=gamma, alpha=alpha, lambda=lambda, ncomp=ncomp)
+    results <- grid.search(x, y, model=model, grid=grid, params=params, folds=folds)
+
     return(results)
 }
